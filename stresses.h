@@ -5,113 +5,118 @@
 #include "utils.h"
 #include "fractions.h"
 
-double interfacearea_axi (scalar f) {
-  double sb = 0.;
+double interfacearea (scalar f) {
   double area = 0.;
-
-  foreach( reduction(+:sb) reduction(+:area) ) {
-    sb += f[]*2*pi*y*sq(Delta);
+  foreach( reduction(+:area) ) {
     if (f[] > 1e-6 && f[] < 1. - 1e-6) {
       coord n = interface_normal (point, f), p;
       double alpha = plane_alpha (f[], n);
-      area += 2*pi*y*pow(Delta, 2 - 1)*plane_area_center (n, alpha, &p);
+#if dimension==3
+      area += pow(Delta,2) * plane_area_center (n, alpha, &p);
+#else
+      area += cm[]*Delta * plane_area_center (n, alpha, &p);
+#endif
     }    
   }
   return area;
 }
 
-int n_drops=-1;
+// You must use tag function to obtain n_drops and m[]
+int n_drops;
+scalar m[];
 
 typedef struct {
   double vol;
-  double ke;        // Droplet absolute KE
-//  double rel_ke=0.;
-  double s_en;           // Droplet Surface Energy
-#if dimension==3
-  double cmz;
-  double uz;
-#endif
-  double cmx;
-  double cmy;
-  double ux;
-  double uy;
+  double KE;        // Droplet absolute KE
+  double SE;      // Droplet Surface Energy
+  coord com;
+  coord u;
+  coord l_max;      // Maximum extent of the droplet
+  coord l_min;      // Minimum extent of the droplet
 } DropStats;
 
-DropStats * atoms ( const scalar f, const vector u, scalar m ) {
-  foreach()
-    m[] = f[] > 1e-3;
-  n_drops = tag(m);
-  
-  if (n_drops==-1)
-    static DropStats atom[n_drops];
-  
-// Initialize the stat variables to zero  
+void atoms ( const scalar f, const vector u, DropStats *atom ) {
+  // Initialize the all atom array components to zero  
   for (int j = 0; j < n_drops; j++) {
-    atom[j].vol;
-    atom[j].ke=0.;        // Droplet absolute KE
-  //  double rel_ke=0.;
-    atom[j].se=0.;           // Droplet Surface Energy
-    atom[j].cmx=0.;
-    atom[j].cmy=0.;
-    atom[j].ux=0.;
-    atom[j].uy=0.;
+    atom[j]->vol=0.;
+    atom[j]->KE=0.;        // Droplet absolute KE
+    atom[j]->SE=0.;           // Droplet Surface Energy
 #if dimension==3
-    atom[j].cmz=0.;
-    atom[j].uz=0.;
+    atom[j]->com={0., 0., 0.};
+    atom[j]->u={0., 0., 0.}.;
+    atom[j]->l_max={-WIDTH, -WIDTH, -WIDTH}.;
+    atom[j]->l_min={WIDTH, WIDTH, WIDTH}.;
+#else
+    atom[j]->com={0., 0.};
+    atom[j]->u={0., 0.}.;
+    atom[j]->l_max={-WIDTH, -WIDTH}.;
+    atom[j]->l_min={WIDTH, WIDTH}.;
 #endif
   }
 
-  foreach_leaf()
+  foreach_leaf() {
     if (m[] > 0) {
       int j = m[] - 1;
-      atom[j].vol += dv()*f[];
+      atom[j]->vol += dv()*f[];
       coord p = {x,y,z};
-      atom[j].cmx += dv()*f[]*p.x;
-      atom[j].cmy += dv()*f[]*p.y;
-      atom[j].ux += u.x[]*dv()*f[];
-      atom[j].uy += u.y[]*dv()*f[];
+
+      if (f[] > 1e-6 && f[] < 1. - 1e-6) {
+        coord n = interface_normal (point, f), p;
+        double alpha = plane_alpha (f[], n);
 #if dimension==3
-      atom[j].cmz += dv()*f[]*p.z;
-      atom[j].uz += u.z[]*dv()*f[];
+        atom[j]->SE += pow(Delta,2)*plane_area_center (n, alpha, &p);
+#else  // Axisymmetric domain has a 2pi factor missing
+        atom[j]->SE += cm[]*Delta*plane_area_center (n, alpha, &p);
 #endif
       }
-    }
 
+      foreach_dimension() {
+        atom[j]->KE += dv()*f[] * sq(u.x);   // dv() is missing 2pi factor 
+        atom[j]->com.x += dv()*f[] * p.x;
+        atom[j]->u.x += dv()*f[] * u.x[];
+      }
+    }
+  }
   MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   
-
   for (int j = 0; j < n_drops; j++) {
-    atom[j].cm.x = atom[j].cm.x/atom[j].vol;
-    atom[j].cm.y = atom[j].cm.y/atom[j].vol;
-    atom[j].u.x = atom[j].cm.x/atom[j].vol;
-    atom[j].u.y = atom[j].cm.y/atom[j].vol;
+    atom[j]->com.x = atom[j]->com.x/atom[j]->vol;
+    atom[j]->com.y = atom[j]->com.y/atom[j]->vol;
+    atom[j]->u.x = atom[j]->u.x/atom[j]->vol;
+    atom[j]->u.y = atom[j]->u.y/atom[j]->vol;
 #if dimension==3
-    atom[j].cm.z = atom[j].cm.z/atom[j].vol;
-    atom[j].u.z = atom[j].cm.z/atom[j].vol;
+    atom[j]->cm.z = atom[j]->cm.z/atom[j]->vol;
+    atom[j]->u.z = atom[j]->u.z/atom[j]->vol;
 #endif
+    atom[j]->SE = f.sigma*atom[j]->SE;
+    atom[j]->KE = rho1*atom[j]->KE;
   }
-  foreach( reduction(min:xmin) reduction(max:xmax) reduction(min:ymin) reduction(max:ymax) ) {
+
+  foreach_leaf() {
     if (m[] > 0) {
       int j = m[] - 1;
-      if (x>atom[j].xmax)  atom[j].xmax = x;
-      if (x<atom[j].xmin)  atom[j].xmin = x;
-      if (y>atom[j].ymax)  atom[j].ymax = y;
-      if (y<atom[j].ymin)  atom[j].ymin = y;
+      if (x<atom[j]->l_min.x)  atom[j]->l_min.x = x;
+      if (y<atom[j]->l_min.y)  atom[j]->l_min.y = y;
 #if dimension==3
-      if (z>atom[j].zmax)  atom[j].zmax = z;
-      if (z<atom[j].zmin)  atom[j].zmin = z;
+      if (z<atom[j]->l_min.z)  atom[j]->l_min.z = z;
 #endif
     }
   }
-}
+  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
 
-    
-        
+  foreach_leaf() {
+    if (m[] > 0) {
+      int j = m[] - 1;
+      if (x>atom[j]->l_max.x)  atom[j]->l_max.x = x;
+      if (y>atom[j]->l_max.y)  atom[j]->l_max.y = y;
+#if dimension==3
+      if (z>atom[j]->l_max.z)  atom[j]->l_max.z = z;
+#endif
+    }
+  }
+  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
-
-
-
-
+} // End of atoms function
 
 
 // Function to calculate Rate of Deformation Tensor
