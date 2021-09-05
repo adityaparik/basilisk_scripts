@@ -37,10 +37,8 @@ typedef struct {
 
 void atoms ( const scalar f, const vector u, DropStats *atom ) {
   // Initialize the all atom array components to zero  
-  for (int j = 0; j < n_drops; j++) {
-    atom[j]->vol=0.;
-    atom[j]->KE=0.;        // Droplet absolute KE
-    atom[j]->SE=0.;           // Droplet Surface Energy
+  for (int j = 0; j < n_drops+1; j++) {
+    atom[j]->vol = atom[j]->KE = atom[j]->SE=0.;
 #if dimension==3
     atom[j]->com={0., 0., 0.};
     atom[j]->u={0., 0., 0.}.;
@@ -55,23 +53,26 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
   }
 
   foreach_leaf() {
+
     if (m[] > 0) {
-      int j = m[] - 1;
-      atom[j]->vol += dv()*f[];
+      int j = m[];
+      atom[j]->vol += dv()*f[];      // dv() is missing 2pi factor 
       coord p = {x,y,z};
 
+// Surface Energy Calculation for the current cell
       if (f[] > 1e-6 && f[] < 1. - 1e-6) {
         coord n = interface_normal (point, f), p;
         double alpha = plane_alpha (f[], n);
 #if dimension==3
         atom[j]->SE += pow(Delta,2)*plane_area_center (n, alpha, &p);
-#else  // Axisymmetric domain has a 2pi factor missing
+#else
+// Axisymmetric domain has a 2pi factor missing
         atom[j]->SE += cm[]*Delta*plane_area_center (n, alpha, &p);
 #endif
       }
 
       foreach_dimension() {
-        atom[j]->KE += dv()*f[] * sq(u.x);   // dv() is missing 2pi factor 
+        atom[j]->KE += dv()*f[] * sq(u.x); // dv() is missing 2pi factor for AXI
         atom[j]->com.x += dv()*f[] * p.x;
         atom[j]->u.x += dv()*f[] * u.x[];
       }
@@ -79,22 +80,46 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
   }
   MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   
-  for (int j = 0; j < n_drops; j++) {
+  for (int j = 1; j < n_drops+1; j++) {
+    atom[0].vol += atom[j].vol;
+
+// Assigning Bulk stats before atom fragment stats are modified 
+    atom[0]->com.x += atom[j]->com.x;
+    atom[0]->com.y += atom[j]->com.y;
+    atom[0]->u.x += atom[j]->u.x;
+    atom[0]->u.y += atom[j]->u.y;
+
     atom[j]->com.x = atom[j]->com.x/atom[j]->vol;
     atom[j]->com.y = atom[j]->com.y/atom[j]->vol;
     atom[j]->u.x = atom[j]->u.x/atom[j]->vol;
     atom[j]->u.y = atom[j]->u.y/atom[j]->vol;
 #if dimension==3
-    atom[j]->cm.z = atom[j]->cm.z/atom[j]->vol;
+    atom[0]->com.z += atom[j]->com.z;
+    atom[0]->u.z += atom[j]->u.z;
+
+    atom[j]->com.z = atom[j]->com.z/atom[j]->vol;
     atom[j]->u.z = atom[j]->u.z/atom[j]->vol;
 #endif
-    atom[j]->SE = f.sigma*atom[j]->SE;
-    atom[j]->KE = rho1*atom[j]->KE;
+    atom[j]->SE = f.sigma*atom[j]->SE;   // Missing 2pi factor for AXI
+    atom[j]->KE = rho1*atom[j]->KE;      // Missing 2pi factor for AXI
+
+    atom[0]->SE += atom[j]->SE;          // Missing 2pi factor for AXI
+    atom[0]->KE += atom[j]->KE;          // Missing 2pi factor for AXI
   }
+
+// Assigning Bulk Stats
+  atom[0]->com.x = atom[0]->com.x/atom[0]->vol;
+  atom[0]->com.y = atom[0]->com.y/atom[0]->vol;
+  atom[0]->u.x = atom[0]->u.x/atom[0]->vol;
+  atom[0]->u.y = atom[0]->u.y/atom[0]->vol;
+#if dimension==3
+  atom[0]->com.z = atom[0]->com.z/atom[0]->vol;
+  atom[0]->u.z = atom[0]->u.z/atom[0]->vol;
+#endif
 
   foreach_leaf() {
     if (m[] > 0) {
-      int j = m[] - 1;
+      int j = m[];
       if (x<atom[j]->l_min.x)  atom[j]->l_min.x = x;
       if (y<atom[j]->l_min.y)  atom[j]->l_min.y = y;
 #if dimension==3
@@ -106,7 +131,7 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
 
   foreach_leaf() {
     if (m[] > 0) {
-      int j = m[] - 1;
+      int j = m[];
       if (x>atom[j]->l_max.x)  atom[j]->l_max.x = x;
       if (y>atom[j]->l_max.y)  atom[j]->l_max.y = y;
 #if dimension==3
@@ -116,7 +141,37 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
   }
   MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
+  for (int j = 1; j < n_drops+1; j++) {
+    if (atom[j]->l_max.x>atom[0]->l_max.x)  atom[0]->l_max.x = atom[j]->l_max.x;
+    if (atom[j]->l_max.y>atom[0]->l_max.y)  atom[0]->l_max.y = atom[j]->l_max.y;
+    if (atom[j]->l_max.z>atom[0]->l_max.z)  atom[0]->l_max.z = atom[j]->l_max.z;
+
+    if (atom[j]->l_min.x<atom[0]->l_min.x)  atom[0]->l_min.x = atom[j]->l_min.x;
+    if (atom[j]->l_min.y<atom[0]->l_min.y)  atom[0]->l_min.y = atom[j]->l_min.y;
+    if (atom[j]->l_min.z<atom[0]->l_min.z)  atom[0]->l_min.z = atom[j]->l_min.z;
+  }
+
 } // End of atoms function
+
+
+DropStats bulkvofstats (DropStats * atom) {
+  DropStats bulk;
+  bulk.vol = bulk.KE = bulk.SE = 0.;
+#if dimension==3
+  bulk.com={0., 0., 0.};
+  bulk.u={0., 0., 0.}.;
+  bulk.l_max={-WIDTH, -WIDTH, -WIDTH}.;
+  bulk.l_min={WIDTH, WIDTH, WIDTH}.;
+#else
+  bulk.com={0., 0.};
+  bulk.u={0., 0.}.;
+  bulk.l_max={-WIDTH, -WIDTH}.;
+  bulk.l_min={WIDTH, WIDTH}.;
+#endif
+
+  for ( int j=0; j<n_drops; j++) {
+    bulk.com
+
 
 
 // Function to calculate Rate of Deformation Tensor
