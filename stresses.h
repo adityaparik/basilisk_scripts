@@ -1,3 +1,7 @@
+// This header file stores many custom functions
+// If using Stress Tensor calculation functions, you must define if 
+// you wish to use a specific type of Constitutive relationship.
+
 #include "utils.h"
 #include "fractions.h"
 
@@ -16,8 +20,102 @@ double interfacearea_axi (scalar f) {
   return area;
 }
 
+int n_drops=-1;
+
+typedef struct {
+  double vol;
+  double ke;        // Droplet absolute KE
+//  double rel_ke=0.;
+  double s_en;           // Droplet Surface Energy
+#if dimension==3
+  double cmz;
+  double uz;
+#endif
+  double cmx;
+  double cmy;
+  double ux;
+  double uy;
+} DropStats;
+
+DropStats * atoms ( const scalar f, const vector u, scalar m ) {
+  foreach()
+    m[] = f[] > 1e-3;
+  n_drops = tag(m);
+  
+  if (n_drops==-1)
+    static DropStats atom[n_drops];
+  
+// Initialize the stat variables to zero  
+  for (int j = 0; j < n_drops; j++) {
+    atom[j].vol;
+    atom[j].ke=0.;        // Droplet absolute KE
+  //  double rel_ke=0.;
+    atom[j].se=0.;           // Droplet Surface Energy
+    atom[j].cmx=0.;
+    atom[j].cmy=0.;
+    atom[j].ux=0.;
+    atom[j].uy=0.;
+#if dimension==3
+    atom[j].cmz=0.;
+    atom[j].uz=0.;
+#endif
+  }
+
+  foreach_leaf()
+    if (m[] > 0) {
+      int j = m[] - 1;
+      atom[j].vol += dv()*f[];
+      coord p = {x,y,z};
+      atom[j].cmx += dv()*f[]*p.x;
+      atom[j].cmy += dv()*f[]*p.y;
+      atom[j].ux += u.x[]*dv()*f[];
+      atom[j].uy += u.y[]*dv()*f[];
+#if dimension==3
+      atom[j].cmz += dv()*f[]*p.z;
+      atom[j].uz += u.z[]*dv()*f[];
+#endif
+      }
+    }
+
+  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  
+
+  for (int j = 0; j < n_drops; j++) {
+    atom[j].cm.x = atom[j].cm.x/atom[j].vol;
+    atom[j].cm.y = atom[j].cm.y/atom[j].vol;
+    atom[j].u.x = atom[j].cm.x/atom[j].vol;
+    atom[j].u.y = atom[j].cm.y/atom[j].vol;
+#if dimension==3
+    atom[j].cm.z = atom[j].cm.z/atom[j].vol;
+    atom[j].u.z = atom[j].cm.z/atom[j].vol;
+#endif
+  }
+  foreach( reduction(min:xmin) reduction(max:xmax) reduction(min:ymin) reduction(max:ymax) ) {
+    if (m[] > 0) {
+      int j = m[] - 1;
+      if (x>atom[j].xmax)  atom[j].xmax = x;
+      if (x<atom[j].xmin)  atom[j].xmin = x;
+      if (y>atom[j].ymax)  atom[j].ymax = y;
+      if (y<atom[j].ymin)  atom[j].ymin = y;
+#if dimension==3
+      if (z>atom[j].zmax)  atom[j].zmax = z;
+      if (z<atom[j].zmin)  atom[j].zmin = z;
+#endif
+    }
+  }
+}
+
+    
+        
+
+
+
+
+
+
+
 // Function to calculate Rate of Deformation Tensor
-void deformation_tensor (const vector u, tensor D) {
+void stress_tensors (const vector u, const scalar p, tensor D, tensor ts) {
   foreach() {
       D.x.x[] = (u.x[1,0,0] - u.x[-1,0,0])/(2.*Delta) + (u.x[1,0,0] - u.x[-1,0,0])/(2.*Delta);
       D.x.y[] = (u.x[0,1,0] - u.x[0,-1,0])/(2.*Delta) + (u.y[1,0,0] - u.y[-1,0,0])/(2.*Delta);
@@ -29,38 +127,36 @@ void deformation_tensor (const vector u, tensor D) {
       D.y.y[] = (u.y[0,1,0] - u.y[0,-1,0])/(2.*Delta) + (u.y[0,1,0] - u.y[0,-1,0])/(2.*Delta);
 #if dimension==3
       D.y.z[] = (u.y[0,0,1] - u.y[0,0,-1])/(2.*Delta) + (u.z[0,1,0] - u.z[0,-1,0])/(2.*Delta);
-#endif
   
       D.z.x[] = (u.z[1,0,0] - u.z[-1,0,0])/(2.*Delta) + (u.x[0,0,1] - u.x[0,0,-1])/(2.*Delta);
       D.z.y[] = (u.z[0,1,0] - u.z[0,-1,0])/(2.*Delta) + (u.y[0,0,1] - u.y[0,0,-1])/(2.*Delta);
-#if dimension==3
       D.z.z[] = (u.z[0,0,1] - u.z[0,0,-1])/(2.*Delta) + (u.z[0,0,1] - u.z[0,0,-1])/(2.*Delta);   
 #endif
   }
-}
-  
+
+#ifdef NEWTONIAN
 // Newtonian Stress Tensor Calculation : ns = -p + mu*D 
-void newtonian_stress (const scalar p, const tensor D, tensor ns) {
-    deformation_tensor (u);
-    foreach() {
-        ns.x.x[] = -p[] + mu2*D.x.x[];
-        ns.x.y[] = mu2*D.x.y[];
+  foreach() {
+      ts.x.x[] = -p[] + mu2*D.x.x[];
+      ts.x.y[] = mu2*D.x.y[];
 #if dimension==3
-        ns.x.z[] = mu2*D.x.z[];
+      ts.x.z[] = mu2*D.x.z[];
 #endif
-    
-        ns.y.x[] = mu2*D.y.x[];
-        ns.y.y[] = -p[] + mu2*D.y.y[];
+      ts.y.x[] = mu2*D.y.x[];
+      ts.y.y[] = -p[] + mu2*D.y.y[];
 #if dimension==3
-        ns.y.z[] = mu2*D.y.z[];
-#endif
-   
-        ns.z.x[] = mu2*D.z.x[];
-        ns.z.y[] = mu2*D.z.y[];
-#if dimension==3
-        ns.z.z[] = -p[] + mu2*D.z.z[];
+      ts.y.z[] = mu2*D.y.z[];
+ 
+      ts.z.x[] = mu2*D.z.x[];
+      ts.z.y[] = mu2*D.z.y[];
+      ts.z.z[] = -p[] + mu2*D.z.z[];
 #endif
     }
+#endif
+
+#ifdef GNF
+
+#endif
 }
 
 
