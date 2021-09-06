@@ -155,7 +155,7 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
 
 
 // Function to calculate Rate of Deformation Tensor
-void stress_tensor (const vector u, const scalar p, tensor D, tensor ts) {
+void deformation_tensor (const vector u, tensor D) {
   foreach() {
       D.x.x[] = (u.x[1,0,0] - u.x[-1,0,0])/(2.*Delta) + (u.x[1,0,0] - u.x[-1,0,0])/(2.*Delta);
       D.x.y[] = (u.x[0,1,0] - u.x[0,-1,0])/(2.*Delta) + (u.y[1,0,0] - u.y[-1,0,0])/(2.*Delta);
@@ -173,66 +173,81 @@ void stress_tensor (const vector u, const scalar p, tensor D, tensor ts) {
       D.z.z[] = (u.z[0,0,1] - u.z[0,0,-1])/(2.*Delta) + (u.z[0,0,1] - u.z[0,0,-1])/(2.*Delta);   
 #endif
   }
+}
 
+// Function to calculate viscous stress Tensor
+void viscous_stress (const scalar p, const tensor D, tensor vs) {
 #ifdef NEWTONIAN
-// Newtonian Stress Tensor Calculation : ns = -p + mu*D 
+// Newtonian viscous stress Tensor Calculation : vs = mu*D 
   foreach() {
-      ts.x.x[] = -p[] + mu2*D.x.x[];
-      ts.x.y[] = mu2*D.x.y[];
+      vs.x.x[] = mu2*D.x.x[];
+      vs.x.y[] = mu2*D.x.y[];
+      vs.y.x[] = mu2*D.y.x[];
+      vs.y.y[] = mu2*D.y.y[];
 #if dimension==3
-      ts.x.z[] = mu2*D.x.z[];
+      vs.x.z[] = mu2*D.x.z[];
+      vs.y.z[] = mu2*D.y.z[];
+      vs.z.x[] = mu2*D.z.x[];
+      vs.z.y[] = mu2*D.z.y[];
+      vs.z.z[] = mu2*D.z.z[];
 #endif
-      ts.y.x[] = mu2*D.y.x[];
-      ts.y.y[] = -p[] + mu2*D.y.y[];
-#if dimension==3
-      ts.y.z[] = mu2*D.y.z[];
- 
-      ts.z.x[] = mu2*D.z.x[];
-      ts.z.y[] = mu2*D.z.y[];
-      ts.z.z[] = -p[] + mu2*D.z.z[];
-#endif
-    }
-#endif
-
-#ifdef GNF
-
+  } 
 #endif
 }
 
+// Function to calculate total stress Tensor
+void total_stress (const scalar p, const tensor vs, tensor ts) {
+  foreach() {
+      ts.x.x[] = -p[] + vs.x.x[];
+      ts.x.y[] = vs.x.y[];
+#if dimension==3
+      ts.x.z[] = vs.x.z[];
+#endif
+      ts.y.x[] = vs.y.x[];
+      ts.y.y[] = -p[] + vs.y.y[];
+#if dimension==3
+      ts.y.z[] = vs.y.z[];
+ 
+      ts.z.x[] = vs.z.x[];
+      ts.z.y[] = vs.z.y[];
+      ts.z.z[] = -p[] + vs.z.z[];
+#endif
+  }
+}
 
-// Function to obtain surface integral of surface stresses
+// Function to obtain surface stresses for a given stress tensor
 
 coord surfaceforces (const scalar f, const tensor ts, vector Tr) {
-    foreach() {
-#if dimension!=3
-        coord F_drop = {0.,0.};
+#if dimension==3
+  coord F_drop = {0.,0.,0.};
 #else
-        coord F_drop = {0.,0.,0.};
+  coord F_drop = {0.,0.};
 #endif
-        if (f[] > 1e-6 && f[] < 1. - 1e-6) {
-            // VOF interface segment outward normal, alpha calculation
-            coord m = mycs (point, f);
-            double alpha = plane_alpha (f[], m);
-            coord pp;       // Variable to store interface segment centroid
-            
-            Tr.x[] = ( ts.x.x[]*m.x + ts.x.y[]*m.y + ts.x.z[]*m.z );
-            Tr.y[] = ( ts.y.x[]*m.x + ts.y.y[]*m.y + ts.y.z[]*m.z );
+  foreach() {
+    if (f[] > 1e-6 && f[] < 1. - 1e-6) {
+      // VOF interface segment outward normal, alpha calculation
+      coord m = mycs (point, f);
+      double alpha = plane_alpha (f[], m);
+      coord pp;       // Variable to store interface segment centroid
+      
+      Tr.x[] = ( ts.x.x[]*m.x + ts.x.y[]*m.y + ts.x.z[]*m.z );
+      Tr.y[] = ( ts.y.x[]*m.x + ts.y.y[]*m.y + ts.y.z[]*m.z );
 #if dimension==3
-            Tr.z[] = ( ts.z.x[]*m.x + ts.z.y[]*m.y + ts.z.z[]*m.z );
-            // Area of VOF interface segment for 3D domain
-            double segmentarea = Delta*Delta*plane_area_center(m, alpha, &pp);
-#elif AXI
-            // Area of VOF interface segment for Axisymmetric domain
-            double segmentarea = 2*pi*y*Delta*plane_area_center(m, alpha, &pp);
+      Tr.z[] = ( ts.z.x[]*m.x + ts.z.y[]*m.y + ts.z.z[]*m.z );
+      // Area of VOF interface segment for 3D domain
+      double segmentarea = Delta*Delta*plane_area_center(m, alpha, &pp);
+#else
+      // Area of VOF interface segment for AXI or 2D
+      double segmentarea = cm[]*Delta*plane_area_center(m, alpha, &pp);
 #endif
-            F_drop.x += Tr.x[] * segmentarea;
-            F_drop.y += Tr.y[] * segmentarea;
+     F_drop.x += Tr.x[] * segmentarea;
+     F_drop.y += Tr.y[] * segmentarea;
 #if dimension==3
-            F_drop.z += Tr.z[] * segmentarea;
+     F_drop.z += Tr.z[] * segmentarea;
 #endif
-
-            return F_drop;
-        }
     }
+  } 
+
+  return F_drop;
 }
 
