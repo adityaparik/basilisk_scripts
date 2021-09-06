@@ -223,31 +223,31 @@ coord surfaceforces (const scalar f, const tensor ts, vector Tr) {
 #else
   coord F_drop = {0.,0.};
 #endif
-  foreach() {
-    if (f[] > 1e-6 && f[] < 1. - 1e-6) {
-      // VOF interface segment outward normal, alpha calculation
-      coord m = mycs (point, f);
-      double alpha = plane_alpha (f[], m);
-      coord pp;       // Variable to store interface segment centroid
-      
-      Tr.x[] = ( ts.x.x[]*m.x + ts.x.y[]*m.y + ts.x.z[]*m.z );
-      Tr.y[] = ( ts.y.x[]*m.x + ts.y.y[]*m.y + ts.y.z[]*m.z );
+  foreach () {
+    Tr.x[] = 0.;  Tr.y[] = 0.;  Tr.z[] = 0.;
+    if ( f[]>1e-6 && f[]<1.-1e-6 ) {
+      coord n = interface_normal (point, f), p;
+      double alpha = plane_alpha (f[], n);
 #if dimension==3
-      Tr.z[] = ( ts.z.x[]*m.x + ts.z.y[]*m.y + ts.z.z[]*m.z );
-      // Area of VOF interface segment for 3D domain
-      double segmentarea = Delta*Delta*plane_area_center(m, alpha, &pp);
+      double segmentarea = pow(Delta,2)*plane_area_center (n, alpha, &p);
 #else
-      // Area of VOF interface segment for AXI or 2D
-      double segmentarea = cm[]*Delta*plane_area_center(m, alpha, &pp);
+// Axisymmetric domain has a 2pi factor missing
+      double segmentarea = cm[]*Delta*plane_area_center (n, alpha, &p);
 #endif
-     F_drop.x += Tr.x[] * segmentarea;
-     F_drop.y += Tr.y[] * segmentarea;
+      double n_mag = sqrt ( sq(n.x) + sq(n.y) + sq(n.z) );
+      n.x = n.x/n_mag; n.y = n.y/n_mag;
+      fprintf (fout, "%.8f %.8f %.8f %.8f\n", x, y, n.x, n.y);
+      
+      Tr.x[] = ( ts.x.x[]*n.x + ts.x.y[]*n.y);// + ts.x.z[]*m.z );
+      Tr.y[] = ( ts.y.x[]*n.x + ts.y.y[]*n.y);// + ts.y.z[]*m.z );
+      F_drop.x += Tr.x[] * segmentarea;
+      F_drop.y += Tr.y[] * segmentarea;
 #if dimension==3
-     F_drop.z += Tr.z[] * segmentarea;
+      Tr.z[] = ( ts.z.x[]*n.x + ts.z.y[]*n.y + ts.z.z[]*n.z );
+      F_drop.z += Tr.z[] * segmentarea;
 #endif
     }
   } 
-
   return F_drop;
 }
 
