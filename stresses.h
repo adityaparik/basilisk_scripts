@@ -78,7 +78,7 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
       }
     }
   }
-  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+//  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops+1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   
   for (int j = 1; j < n_drops+1; j++) {
     atom[0].vol += atom[j].vol;
@@ -127,7 +127,7 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
 #endif
     }
   }
-  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+//  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops+1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
 
   foreach_leaf() {
     if (m[] > 0) {
@@ -139,7 +139,7 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
 #endif
     }
   }
-  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+//  MPI_Allreduce (MPI_IN_PLACE, atom, n_drops+1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
   for (int j = 1; j < n_drops+1; j++) {
     if (atom[j].l_max.x>atom[0].l_max.x)  atom[0].l_max.x = atom[j].l_max.x;
@@ -235,3 +235,4 @@ coord surfaceforces (const scalar f, const tensor ts, vector Tr) {
         }
     }
 }
+
