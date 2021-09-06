@@ -176,7 +176,7 @@ void deformation_tensor (const vector u, tensor D) {
 }
 
 // Function to calculate viscous stress Tensor
-void viscous_stress (const scalar p, const tensor D, tensor vs) {
+void viscous_stress (const tensor D, tensor vs) {
 #ifdef NEWTONIAN
 // Newtonian viscous stress Tensor Calculation : vs = mu*D 
   foreach() {
