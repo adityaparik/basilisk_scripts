@@ -1,9 +1,9 @@
-double sigma = 0.01;
-double rho1 = 1000;
+double sigma = 1./93.0;
+double rho1 = 10;
 double rho2 = 1;
-double mu1 = 50;
-double mu2 = 1;
-#define WIDTH 16
+double mu1 = 3.2791e-2;
+double mu2 = 1.037e-2;
+#define WIDTH 32
 #define dimension 2
 
 #include "view.h"
@@ -24,7 +24,7 @@ char dumpname[80];
 int main (int argc, char * argv[]) {
   if (argc>1) sprintf (dumpname, "%s", argv[1]);
 
-  FILE * fp = fopen ( "../dropstats.txt", "a");
+  FILE * fp = fopen ( "dropstats.txt", "a");
 
   if (restore (file = dumpname)) {
     fprintf (fp, "Dumpfile restored: %s\n", dumpname);
@@ -62,9 +62,9 @@ int main (int argc, char * argv[]) {
 
     for (int j = 0; j < n_drops+1; j++)
       if (pid()==0)
-        fprintf ( fp, "%.8d %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
-                  j, atom[j].vol, atom[j].com.x, atom[j].u.x, atom[j].KE,
-                  atom[j].SE, atom[j].l_max.x, atom[j].l_min.x );
+        fprintf ( fp, "%.8d %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",
+                  j, 2*pi*atom[j].vol, atom[j].com.x, atom[j].u.x, pi*atom[j].KE,
+                  2*pi*atom[j].SE, atom[j].l_max.x, atom[j].l_min.x, atom[j].l_max.y, atom[j].l_min.y );
 
 //    fprintf (fout, "%.8f %.8f\n", F_drop.x, F_drop.y);
 //
