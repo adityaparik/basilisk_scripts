@@ -4,6 +4,7 @@
 
 #include "utils.h"
 #include "fractions.h"
+#include "tag.h"
 
 double interfacearea (scalar f) {
   double area = 0.;
@@ -38,17 +39,16 @@ typedef struct {
 void atoms ( const scalar f, const vector u, DropStats *atom ) {
   // Initialize the all atom array components to zero  
   for (int j = 0; j < n_drops+1; j++) {
-    atom[j]->vol = atom[j]->KE = atom[j]->SE=0.;
+    atom[j].vol = atom[j].KE = atom[j].SE=0.;
+    atom[j].com.x = 0.; atom[j].com.y = 0.;
+    atom[j].u.x = 0.; atom[j].u.y = 0.;
+    atom[j].l_max.x=-WIDTH; atom[j].l_max.y=-WIDTH;
+    atom[j].l_min.x=WIDTH; atom[j].l_min.y=WIDTH;
 #if dimension==3
-    atom[j]->com={0., 0., 0.};
-    atom[j]->u={0., 0., 0.}.;
-    atom[j]->l_max={-WIDTH, -WIDTH, -WIDTH}.;
-    atom[j]->l_min={WIDTH, WIDTH, WIDTH}.;
-#else
-    atom[j]->com={0., 0.};
-    atom[j]->u={0., 0.}.;
-    atom[j]->l_max={-WIDTH, -WIDTH}.;
-    atom[j]->l_min={WIDTH, WIDTH}.;
+    atom[j].com.z = 0.;
+    atom[j].u.z = 0.;
+    atom[j].l_max.z=-WIDTH;
+    atom[j].l_min.z=WIDTH;
 #endif
   }
 
@@ -56,7 +56,7 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
 
     if (m[] > 0) {
       int j = m[];
-      atom[j]->vol += dv()*f[];      // dv() is missing 2pi factor 
+      atom[j].vol += dv()*f[];      // dv() is missing 2pi factor 
       coord p = {x,y,z};
 
 // Surface Energy Calculation for the current cell
@@ -64,17 +64,17 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
         coord n = interface_normal (point, f), p;
         double alpha = plane_alpha (f[], n);
 #if dimension==3
-        atom[j]->SE += pow(Delta,2)*plane_area_center (n, alpha, &p);
+        atom[j].SE += pow(Delta,2)*plane_area_center (n, alpha, &p);
 #else
 // Axisymmetric domain has a 2pi factor missing
-        atom[j]->SE += cm[]*Delta*plane_area_center (n, alpha, &p);
+        atom[j].SE += cm[]*Delta*plane_area_center (n, alpha, &p);
 #endif
       }
 
       foreach_dimension() {
-        atom[j]->KE += dv()*f[] * sq(u.x); // dv() is missing 2pi factor for AXI
-        atom[j]->com.x += dv()*f[] * p.x;
-        atom[j]->u.x += dv()*f[] * u.x[];
+        atom[j].KE += dv()*f[] * sq(u.x[]); // dv() is missing 2pi factor for AXI
+        atom[j].com.x += dv()*f[] * p.x;
+        atom[j].u.x += dv()*f[] * u.x[];
       }
     }
   }
@@ -84,46 +84,46 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
     atom[0].vol += atom[j].vol;
 
 // Assigning Bulk stats before atom fragment stats are modified 
-    atom[0]->com.x += atom[j]->com.x;
-    atom[0]->com.y += atom[j]->com.y;
-    atom[0]->u.x += atom[j]->u.x;
-    atom[0]->u.y += atom[j]->u.y;
+    atom[0].com.x += atom[j].com.x;
+    atom[0].com.y += atom[j].com.y;
+    atom[0].u.x += atom[j].u.x;
+    atom[0].u.y += atom[j].u.y;
 
-    atom[j]->com.x = atom[j]->com.x/atom[j]->vol;
-    atom[j]->com.y = atom[j]->com.y/atom[j]->vol;
-    atom[j]->u.x = atom[j]->u.x/atom[j]->vol;
-    atom[j]->u.y = atom[j]->u.y/atom[j]->vol;
+    atom[j].com.x = atom[j].com.x/atom[j].vol;
+    atom[j].com.y = atom[j].com.y/atom[j].vol;
+    atom[j].u.x = atom[j].u.x/atom[j].vol;
+    atom[j].u.y = atom[j].u.y/atom[j].vol;
 #if dimension==3
-    atom[0]->com.z += atom[j]->com.z;
-    atom[0]->u.z += atom[j]->u.z;
+    atom[0].com.z += atom[j].com.z;
+    atom[0].u.z += atom[j].u.z;
 
-    atom[j]->com.z = atom[j]->com.z/atom[j]->vol;
-    atom[j]->u.z = atom[j]->u.z/atom[j]->vol;
+    atom[j].com.z = atom[j].com.z/atom[j].vol;
+    atom[j].u.z = atom[j].u.z/atom[j].vol;
 #endif
-    atom[j]->SE = f.sigma*atom[j]->SE;   // Missing 2pi factor for AXI
-    atom[j]->KE = rho1*atom[j]->KE;      // Missing 2pi factor for AXI
+    atom[j].SE = sigma*atom[j].SE;   // Missing 2pi factor for AXI
+    atom[j].KE = rho1*atom[j].KE;      // Missing 2pi factor for AXI
 
-    atom[0]->SE += atom[j]->SE;          // Missing 2pi factor for AXI
-    atom[0]->KE += atom[j]->KE;          // Missing 2pi factor for AXI
+    atom[0].SE += atom[j].SE;          // Missing 2pi factor for AXI
+    atom[0].KE += atom[j].KE;          // Missing 2pi factor for AXI
   }
 
 // Assigning Bulk Stats
-  atom[0]->com.x = atom[0]->com.x/atom[0]->vol;
-  atom[0]->com.y = atom[0]->com.y/atom[0]->vol;
-  atom[0]->u.x = atom[0]->u.x/atom[0]->vol;
-  atom[0]->u.y = atom[0]->u.y/atom[0]->vol;
+  atom[0].com.x = atom[0].com.x/atom[0].vol;
+  atom[0].com.y = atom[0].com.y/atom[0].vol;
+  atom[0].u.x = atom[0].u.x/atom[0].vol;
+  atom[0].u.y = atom[0].u.y/atom[0].vol;
 #if dimension==3
-  atom[0]->com.z = atom[0]->com.z/atom[0]->vol;
-  atom[0]->u.z = atom[0]->u.z/atom[0]->vol;
+  atom[0].com.z = atom[0].com.z/atom[0].vol;
+  atom[0].u.z = atom[0].u.z/atom[0].vol;
 #endif
 
   foreach_leaf() {
     if (m[] > 0) {
       int j = m[];
-      if (x<atom[j]->l_min.x)  atom[j]->l_min.x = x;
-      if (y<atom[j]->l_min.y)  atom[j]->l_min.y = y;
+      if (x<atom[j].l_min.x)  atom[j].l_min.x = x;
+      if (y<atom[j].l_min.y)  atom[j].l_min.y = y;
 #if dimension==3
-      if (z<atom[j]->l_min.z)  atom[j]->l_min.z = z;
+      if (z<atom[j].l_min.z)  atom[j].l_min.z = z;
 #endif
     }
   }
@@ -132,50 +132,30 @@ void atoms ( const scalar f, const vector u, DropStats *atom ) {
   foreach_leaf() {
     if (m[] > 0) {
       int j = m[];
-      if (x>atom[j]->l_max.x)  atom[j]->l_max.x = x;
-      if (y>atom[j]->l_max.y)  atom[j]->l_max.y = y;
+      if (x>atom[j].l_max.x)  atom[j].l_max.x = x;
+      if (y>atom[j].l_max.y)  atom[j].l_max.y = y;
 #if dimension==3
-      if (z>atom[j]->l_max.z)  atom[j]->l_max.z = z;
+      if (z>atom[j].l_max.z)  atom[j].l_max.z = z;
 #endif
     }
   }
   MPI_Allreduce (MPI_IN_PLACE, atom, n_drops, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
   for (int j = 1; j < n_drops+1; j++) {
-    if (atom[j]->l_max.x>atom[0]->l_max.x)  atom[0]->l_max.x = atom[j]->l_max.x;
-    if (atom[j]->l_max.y>atom[0]->l_max.y)  atom[0]->l_max.y = atom[j]->l_max.y;
-    if (atom[j]->l_max.z>atom[0]->l_max.z)  atom[0]->l_max.z = atom[j]->l_max.z;
+    if (atom[j].l_max.x>atom[0].l_max.x)  atom[0].l_max.x = atom[j].l_max.x;
+    if (atom[j].l_max.y>atom[0].l_max.y)  atom[0].l_max.y = atom[j].l_max.y;
+    if (atom[j].l_max.z>atom[0].l_max.z)  atom[0].l_max.z = atom[j].l_max.z;
 
-    if (atom[j]->l_min.x<atom[0]->l_min.x)  atom[0]->l_min.x = atom[j]->l_min.x;
-    if (atom[j]->l_min.y<atom[0]->l_min.y)  atom[0]->l_min.y = atom[j]->l_min.y;
-    if (atom[j]->l_min.z<atom[0]->l_min.z)  atom[0]->l_min.z = atom[j]->l_min.z;
+    if (atom[j].l_min.x<atom[0].l_min.x)  atom[0].l_min.x = atom[j].l_min.x;
+    if (atom[j].l_min.y<atom[0].l_min.y)  atom[0].l_min.y = atom[j].l_min.y;
+    if (atom[j].l_min.z<atom[0].l_min.z)  atom[0].l_min.z = atom[j].l_min.z;
   }
 
 } // End of atoms function
 
 
-DropStats bulkvofstats (DropStats * atom) {
-  DropStats bulk;
-  bulk.vol = bulk.KE = bulk.SE = 0.;
-#if dimension==3
-  bulk.com={0., 0., 0.};
-  bulk.u={0., 0., 0.}.;
-  bulk.l_max={-WIDTH, -WIDTH, -WIDTH}.;
-  bulk.l_min={WIDTH, WIDTH, WIDTH}.;
-#else
-  bulk.com={0., 0.};
-  bulk.u={0., 0.}.;
-  bulk.l_max={-WIDTH, -WIDTH}.;
-  bulk.l_min={WIDTH, WIDTH}.;
-#endif
-
-  for ( int j=0; j<n_drops; j++) {
-    bulk.com
-
-
-
 // Function to calculate Rate of Deformation Tensor
-void stress_tensors (const vector u, const scalar p, tensor D, tensor ts) {
+void stress_tensor (const vector u, const scalar p, tensor D, tensor ts) {
   foreach() {
       D.x.x[] = (u.x[1,0,0] - u.x[-1,0,0])/(2.*Delta) + (u.x[1,0,0] - u.x[-1,0,0])/(2.*Delta);
       D.x.y[] = (u.x[0,1,0] - u.x[0,-1,0])/(2.*Delta) + (u.y[1,0,0] - u.y[-1,0,0])/(2.*Delta);
@@ -235,10 +215,10 @@ coord surfaceforces (const scalar f, const tensor ts, vector Tr) {
             double alpha = plane_alpha (f[], m);
             coord pp;       // Variable to store interface segment centroid
             
-            Tr.x[] = ( tsx.x[]*m.x + tsx.y[]*m.y + tsx.z[]*m.z );
-            Tr.y[] = ( tsy.x[]*m.x + tsy.y[]*m.y + tsy.z[]*m.z );
+            Tr.x[] = ( ts.x.x[]*m.x + ts.x.y[]*m.y + ts.x.z[]*m.z );
+            Tr.y[] = ( ts.y.x[]*m.x + ts.y.y[]*m.y + ts.y.z[]*m.z );
 #if dimension==3
-            Tr.z[] = ( tsz.x[]*m.x + tsz.y[]*m.y + tsz.z[]*m.z );
+            Tr.z[] = ( ts.z.x[]*m.x + ts.z.y[]*m.y + ts.z.z[]*m.z );
             // Area of VOF interface segment for 3D domain
             double segmentarea = Delta*Delta*plane_area_center(m, alpha, &pp);
 #elif AXI
